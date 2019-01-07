@@ -1,0 +1,146 @@
+#!/usr/bin/env bash
+
+###############################################################################
+#                               default options                               #
+###############################################################################
+
+output_dir="out"
+
+ignore_url="https://dourous.net/audio/les-invocations/"
+
+page_urls=(
+    https://dourous.net/dourous/page/1/
+    https://dourous.net/dourous/page/2/
+    https://dourous.net/dourous/page/3/
+)
+
+required_binary=(
+    wget
+    lynx
+    stat
+    basename
+)
+
+###############################################################################
+#                                     log                                     #
+###############################################################################
+
+function log_fatal() {
+    echo "${@}" && exit 1
+}
+
+###############################################################################
+#                                    utils                                    #
+###############################################################################
+
+function check_network() {
+    ping -q -w 1 -c 1 "google.com" &>/dev/null ||
+        log_fatal "no network, check your internet connection"
+}
+
+function __bytes_size {
+    local -i bytes=${1};
+    if [[ ${bytes} -lt 1024 ]]; then
+        echo "${bytes}B"
+    elif [[ ${bytes} -lt 1048576 ]]; then
+        echo "$(( (bytes + 1023)/1024 ))KiB"
+    elif [[ ${bytes} -lt 1073741823 ]]; then
+        echo "$(( (bytes + 1048575)/1048576 ))MiB"
+    else
+        echo "$(( (bytes + 1073741823)/1073741824 ))GiB"
+    fi
+}
+
+###############################################################################
+#                                    usage                                    #
+###############################################################################
+
+function usage() {
+    echo "Usage: $(basename ${0}) [OPTS]"
+    echo
+    echo "    Download all dourous from dourous.net in <out> folder"
+    echo "    if not specified otherwise with -o/--output option"
+    echo
+    echo "OPTS:"
+    echo "    -o | --output <folder>      Directory that contains dourous"
+    echo "    -h | --help                 Display this help message"
+    exit 0
+}
+
+###############################################################################
+#                               parse arguments                               #
+###############################################################################
+
+function parse_arguments() {
+    while [[ ${#} -gt 0 ]] ; do
+        case "$1" in
+            -o|--output) output_dir=${2}; shift ;;
+            -h*|--help*|*) usage ;;
+        esac
+        shift
+    done
+}
+
+###############################################################################
+#                               check arguments                               #
+###############################################################################
+
+function check_arguments() {
+    for bin in ${required_binary[@]}; do
+        if ! type "${bin}" &> /dev/null; then
+            log_fatal "fatal: "${bin}" is not installed"
+        fi
+    done
+}
+
+###############################################################################
+#                                    main                                     #
+###############################################################################
+
+function main() {
+    dourous_dirs=()
+    for page_url in ${page_urls[@]}; do
+        dourous_dirs+=($(lynx -dump -listonly "${page_url}" |
+                       awk '/.*audio/ {print $2}' | grep -v ${ignore_url} |
+                       sort | uniq))
+    done
+
+    for dourous_dir in ${dourous_dirs[@]}; do
+        folder_name="${output_dir}/$(basename ${dourous_dir})"
+        mkdir -p ${folder_name}
+
+        mp3_urls=$(lynx -dump -listonly "${dourous_dir}" |
+                   awk '/.*download.*\.mp3$/ {print $2}' |
+                   sort | uniq)
+
+        for mp3_url in ${mp3_urls}; do
+            mp3_name="$(basename ${mp3_url})"
+            mp3_size=$(wget "${mp3_url}" --spider --server-response -O - 2>&1 |
+                       sed -ne '/Content-Length/{s/.*: //;p}')
+            echo "Download file: ${mp3_name} size: `__bytes_size ${mp3_size}`"
+
+            mp3_file="${folder_name}/${mp3_name}"
+            if [[ -s ${mp3_file} ]]; then
+                present_mp3_size=$(stat --printf="%s" ${mp3_file})
+                if [[ ${present_mp3_size} -eq ${mp3_size} ]]; then
+                    echo "file ${mp3_name} already exists"
+                    continue
+                fi
+            fi
+
+            wget --show-progress -q ${mp3_url} -O ${mp3_file}
+
+        done
+    done
+}
+
+###############################################################################
+#                                 run script                                  #
+###############################################################################
+
+parse_arguments "${@}"
+check_arguments "${@}"
+
+check_network
+main "${@}"
+
