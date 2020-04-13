@@ -6,12 +6,10 @@
 
 output_dir="out"
 
-ignore_url="https://dourous.net/audio/les-invocations/"
-
 page_urls=(
-    https://dourous.net/dourous/page/1/
-    https://dourous.net/dourous/page/2/
-    https://dourous.net/dourous/page/3/
+    "https://dourous.net/?page_id=17&paged=1"
+    "https://dourous.net/?page_id=17&paged=2"
+    "https://dourous.net/?page_id=17&paged=3"
 )
 
 required_binary=(
@@ -96,18 +94,16 @@ function check_arguments() {
 function main() {
     dourous_dirs=()
     for page_url in "${page_urls[@]}"; do
-        dourous_dirs+=($(lynx -dump -listonly "${page_url}" |
-                       awk '/.*audio/ {print $2}' | grep -v ${ignore_url} |
-                       sort | uniq))
+        dourous_dirs+=($(lynx -dump -listonly -nonumbers "${page_url}" |
+                       grep "?audio=" | sort | uniq))
     done
 
     for dourous_dir in "${dourous_dirs[@]}"; do
-        folder_name="${output_dir}/$(basename "${dourous_dir}")"
+        folder_name="${output_dir}/${dourous_dir##*=}"
         mkdir -p "${folder_name}"
 
-        mp3_urls=$(lynx -dump -listonly "${dourous_dir}" |
-                   awk '/.*download.*\.mp3$/ {print $2}' |
-                   sort | uniq)
+        mp3_urls=$(lynx -dump -listonly -nonumbers "${dourous_dir}" |
+                   grep "/.*download.*\.mp3$" | sort | uniq)
 
         for mp3_url in ${mp3_urls}; do
             mp3_name="$(basename "${mp3_url}")"
@@ -123,9 +119,7 @@ function main() {
                     continue
                 fi
             fi
-
             wget --show-progress -q "${mp3_url}" -O "${mp3_file}"
-
         done
     done
 }
